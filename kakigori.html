@@ -15,16 +15,16 @@
 'use strict';
 const W=420,H=400,IW=210,IH=260,OX=105,OY=67,STEP=1;
 const canvas=document.getElementById('art'),ctx=canvas.getContext('2d'),paintCanvas=document.createElement('canvas'),pctx=paintCanvas.getContext('2d',{willReadFrequently:true});paintCanvas.width=IW;paintCanvas.height=IH;
-const channels=new Float32Array(IW*IH*6);let mode='paint',chosen='red',down=false,last=null,history=[],pointer=null,dirty=true;
+const channels=new Float32Array(IW*IH*7);let mode='paint',chosen='red',down=false,last=null,history=[],pointer=null,dirty=true;
 const colors={
- paint:[['あか','red','#e8444c'],['あお','blue','#317bd7'],['きいろ','yellow','#f9d735'],['しろ','white','#fff9ef'],['くろ','black','#35333c'],['むらさき','purple','#974bbb']],
+ paint:[['あか','red','#e8444c'],['あお','blue','#317bd7'],['きいろ','yellow','#f9d735'],['しろ','white','#fff9ef'],['くろ','black','#35333c'],['むらさき','purple','#974bbb'],['みどり','green','#359b60']],
  light:[['あか','red','#ff3447'],['みどり','green','#42f36b'],['あお','blue','#4a8fff']]
 };
 const iceShape=new Path2D('M92 226 C87 210 92 191 104 179 C105 162 119 146 137 134 C146 116 165 112 182 102 C192 86 211 81 222 93 C246 94 252 115 271 129 C289 141 305 157 314 181 C327 198 323 220 309 231 C264 248 141 248 92 226Z');
 const gemShape=new Path2D('M208 82 L267 105 L312 165 L286 260 L208 319 L128 259 L106 164 L151 106Z');
 const bowl=new Image();bowl.onload=()=>{dirty=true;render()};bowl.src='ice-bowl-raster.png';
 function say(s){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(s);u.lang='ja-JP';u.rate=.87;speechSynthesis.speak(u)}catch(e){}}
-function channelFor(name){return mode==='light'?{red:0,green:1,blue:2}[name]:{red:0,blue:1,yellow:2,white:3,black:4,purple:5}[name]}
+function channelFor(name){return mode==='light'?{red:0,green:1,blue:2}[name]:{red:0,blue:1,yellow:2,white:3,black:4,purple:5,green:6}[name]}
 function palette(){const root=document.getElementById('palette');root.innerHTML='';for(const [label,key,color] of colors[mode]){const b=document.createElement('button');b.className='ink'+(key===chosen?' selected':'');b.type='button';b.style.background=mode==='light'?'#d7dafa':'#fff9ee';b.innerHTML='<span class="swatch" style="background:'+color+'"></span>'+label;b.onclick=()=>{chosen=key;palette();document.getElementById('feedback').textContent=label+'を えらんだよ';say(label)};root.append(b)}}
 function reset(announce=false){channels.fill(0);history=[];last=null;dirty=true;render();if(announce)document.getElementById('feedback').textContent='まっしろに なったよ'}
 function switchMode(next){mode=next;chosen='red';document.body.classList.toggle('magic',mode==='light');document.getElementById('paint').classList.toggle('selected',mode==='paint');document.getElementById('light').classList.toggle('selected',mode==='light');document.getElementById('tip').textContent=mode==='paint'?'こおりを なぞると シロップが じわ〜っと しみこむよ':'ひかりを かさねて しろい ダイヤモンドに しよう！';document.getElementById('heading').textContent=mode==='paint'?'🍧 いろまぜ かきごおり':'💎 まほうの ひかる いし';document.getElementById('shine').textContent='';reset();palette();}
@@ -32,30 +32,57 @@ function within(x,y){return ctx.isPointInPath(mode==='paint'?iceShape:gemShape,x
 function daub(x,y,power=1){const gx=(x-OX)/IW,gy=(y-OY)/IH;const radius=mode==='paint'?17:26;const r2=radius*radius;
  const minx=Math.max(0,Math.floor((x-radius-OX))),maxx=Math.min(IW-1,Math.ceil(x+radius-OX)),miny=Math.max(0,Math.floor(y-radius-OY)),maxy=Math.min(IH-1,Math.ceil(y+radius-OY));
  const ch=channelFor(chosen);for(let yy=miny;yy<=maxy;yy++){for(let xx=minx;xx<=maxx;xx++){const cx=OX+xx+.5,cy=OY+yy+.5,dx=cx-x,dy=cy-y,d2=dx*dx+dy*dy;if(d2>r2||!within(cx,cy))continue;
- const fall=Math.pow(1-Math.sqrt(d2)/radius,1.45);const off=(yy*IW+xx)*6+ch;channels[off]=Math.min(1,channels[off]+fall*.22*power);
+ const fall=Math.pow(1-Math.sqrt(d2)/radius,1.45);const off=(yy*IW+xx)*7+ch;channels[off]=Math.min(1,channels[off]+fall*.22*power);
  }}dirty=true;}
 function stroke(x,y){if(last){const dx=x-last.x,dy=y-last.y,dist=Math.hypot(dx,dy),n=Math.max(1,Math.ceil(dist/4));for(let i=1;i<=n;i++)daub(last.x+dx*i/n,last.y+dy*i/n)}else daub(x,y);last={x,y};render();}
 function point(e){const r=canvas.getBoundingClientRect();const scale=Math.min(r.width/W,r.height/H),left=r.left+(r.width-W*scale)/2,top=r.top+(r.height-H*scale)/2;return {x:(e.clientX-left)/scale,y:(e.clientY-top)/scale};}
 canvas.addEventListener('pointerdown',e=>{const p=point(e);if(!within(p.x,p.y))return;e.preventDefault();pointer=e.pointerId;down=true;history.push(channels.slice());if(history.length>12)history.shift();canvas.setPointerCapture(e.pointerId);stroke(p.x,p.y)});
 canvas.addEventListener('pointermove',e=>{if(!down||e.pointerId!==pointer)return;e.preventDefault();const p=point(e);stroke(p.x,p.y)});
 function stop(){down=false;pointer=null;last=null;updateMessage();}canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointercancel',stop);
-function mixRYB(a,b,c,w,k,p){ // Three primaries with intuitive pairwise paint mixing.
- const sum=a+b+c+p; if(sum<.002)return [247,251,255];
- const v=[a,b,c,p].sort((x,y)=>y-x);const aa=Math.min(1,a),bb=Math.min(1,b),cc=Math.min(1,c),purple=Math.min(1,p);
- let R=248,G=250,B=252;
- // Color strength rises with brush strokes; additive light is handled separately.
- const intensity=Math.min(1,Math.pow(sum,.75));
- if(a>=b&&a>=c&&a>=purple){R=232;G=65;B=75;}
- if(b>a&&b>=c&&b>=purple){R=52;G=112;B=225;}
- if(c>a&&c>b&&c>=purple){R=249;G=209;B=48;}
- if(purple>a&&purple>b&&purple>c){R=154;G=74;B=193;}
- if(a>.1&&c>.1&&Math.min(a,c)>Math.max(b,purple)*.75){const t=Math.min(1,2*Math.min(a,c));R=R*(1-t)+245*t;G=G*(1-t)+136*t;B=B*(1-t)+39*t;}
- if(b>.1&&c>.1&&Math.min(b,c)>Math.max(a,purple)*.75){const t=Math.min(1,2*Math.min(b,c));R=R*(1-t)+60*t;G=G*(1-t)+165*t;B=B*(1-t)+80*t;}
- if(a>.1&&b>.1&&Math.min(a,b)>Math.max(c,purple)*.75){const t=Math.min(1,2*Math.min(a,b));R=R*(1-t)+153*t;G=G*(1-t)+67*t;B=B*(1-t)+173*t;}
- if(a>.25&&b>.25&&c>.25){const t=Math.min(1,(Math.min(a,b,c)-.25)*2.3);R=R*(1-t)+110*t;G=G*(1-t)+75*t;B=B*(1-t)+59*t;}
- const whiten=Math.min(1,w*.8),blacken=Math.min(.85,k*.75);return [R,G,B].map(x=>(248*(1-intensity)+x*intensity)*(1-whiten)+248*whiten).map(x=>Math.round(x*(1-blacken)+37*blacken));
+// A small palette of child-friendly paint mixtures, with continuous ratios.
+const pigmentRGB=[[232,65,75],[49,123,215],[249,209,48],[255,249,239],[53,51,60],[151,75,187],[53,155,96]];
+// Ordered by pigment channel: red, blue, yellow, white, black, purple, green.
+const paintPairs={
+ '0,1':[147,96,171], '0,2':[245,151,50], '0,3':[245,160,184],
+ '0,4':[143,48,61], '0,5':[188,75,147], '0,6':[148,99,68],
+ '1,2':[72,167,98], '1,3':[139,205,240], '1,4':[48,61,138],
+ '1,5':[99,85,187], '1,6':[52,132,147],
+ '2,3':[255,241,172], '2,4':[137,131,59], '2,5':[175,151,91],
+ '2,6':[165,204,77], '3,4':[165,165,167],
+ '3,5':[199,170,231], '3,6':[169,217,162],
+ '4,5':[80,50,101], '4,6':[24,92,66], '5,6':[103,113,130]
+};
+function mixRYB(a,b,c,w,k,p,g){
+ const inks=[a,b,c,w,k,p,g],active=[0,1,2,5,6].filter(i=>inks[i]>.005);
+ const sum=active.reduce((n,i)=>n+inks[i],0);
+ // No pigment: shaved-ice white. White/black alone still make visible shades.
+ if(sum<.002&&w<.002&&k<.002)return [247,251,255];
+ active.sort((i,j)=>inks[j]-inks[i]);
+ let rgb;
+ if(active.length){
+  const first=active[0],second=active[1],primary=pigmentRGB[first],strength=inks[first];
+  rgb=primary.slice();
+  if(second!==undefined){
+   const pair=paintPairs[[first,second].sort((x,y)=>x-y).join(',')];
+   // Equal amounts give the named mixture; repeated paint pushes toward that pigment.
+   // Slightly favor the named middle as soon as two pigments visibly overlap.
+   const portion=inks[second]/(strength+inks[second]);
+   const blend=portion<=.5?Math.min(1,portion*2.2):1;
+   rgb=rgb.map((v,i)=>v*(1-blend)+pair[i]*blend);
+   if(active.length>2){
+    const extra=active.slice(2).reduce((n,i)=>n+inks[i],0);
+    const muddy=Math.min(.65,extra/(strength+inks[second]+extra)*1.5);
+    rgb=rgb.map((v,i)=>v*(1-muddy)+[116,91,77][i]*muddy);
+   }
+  }
+  const intensity=Math.min(1,Math.pow(sum,.72));
+  rgb=rgb.map((v,i)=>[247,251,255][i]*(1-intensity)+v*intensity);
+ }else rgb=[247,251,255];
+ // White lightens any mixture, black darkens it. Both remain cumulative and reversible.
+ const whitening=Math.min(.94,w*1.12),darkening=Math.min(.87,k*.95);
+ return rgb.map((v,i)=>Math.round((v*(1-whitening)+pigmentRGB[3][i]*whitening)*(1-darkening)+pigmentRGB[4][i]*darkening));
 }
-function drawPaint(){const img=pctx.createImageData(IW,IH),d=img.data;for(let y=0;y<IH;y++)for(let x=0;x<IW;x++){const i=(y*IW+x),p=i*6,o=i*4;const val=mode==='paint'?mixRYB(channels[p],channels[p+1],channels[p+2],channels[p+3],channels[p+4],channels[p+5]):[Math.round(18+237*channels[p]),Math.round(24+231*channels[p+1]),Math.round(48+207*channels[p+2])];d[o]=val[0];d[o+1]=val[1];d[o+2]=val[2];d[o+3]=255;}pctx.putImageData(img,0,0);}
+function drawPaint(){const img=pctx.createImageData(IW,IH),d=img.data;for(let y=0;y<IH;y++)for(let x=0;x<IW;x++){const i=(y*IW+x),p=i*7,o=i*4;const val=mode==='paint'?mixRYB(channels[p],channels[p+1],channels[p+2],channels[p+3],channels[p+4],channels[p+5],channels[p+6]):[Math.round(18+237*channels[p]),Math.round(24+231*channels[p+1]),Math.round(48+207*channels[p+2])];d[o]=val[0];d[o+1]=val[1];d[o+2]=val[2];d[o+3]=255;}pctx.putImageData(img,0,0);}
 function render(){if(!dirty)return;dirty=false;ctx.clearRect(0,0,W,H);
  if(mode==='paint'){
  const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#e9f9ff');bg.addColorStop(1,'#fff7db');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
@@ -72,7 +99,7 @@ function render(){if(!dirty)return;dirty=false;ctx.clearRect(0,0,W,H);
  ctx.save();ctx.strokeStyle='#aebeff';ctx.lineWidth=3;ctx.shadowBlur=22;ctx.shadowColor='#7aabff';ctx.stroke(gemShape);ctx.restore();
  ctx.font='bold 21px system-ui';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.fillText('ひかりを かさねよう！',210,372);
  }}
-function updateMessage(){let strengths=Array(6).fill(0),count=0;for(let y=30;y<IH-20;y+=7)for(let x=35;x<IW-35;x+=7){if(!within(x+OX,y+OY))continue;count++;for(let k=0;k<6;k++)strengths[k]+=channels[(y*IW+x)*6+k]};if(mode==='light'){const all=[strengths[0],strengths[1],strengths[2]];const enough=all.every(x=>x>6);document.getElementById('feedback').textContent=enough?'✨ しろく かがやいた！':'ひかりが ひろがったよ！';document.getElementById('shine').textContent=enough?'💎 まほうの ダイヤモンド！':'';if(enough)say('ダイヤモンド！');}else{document.getElementById('feedback').textContent='いろが じわ〜っと しみこんだよ！';}}
+function updateMessage(){let strengths=Array(7).fill(0),count=0;for(let y=30;y<IH-20;y+=7)for(let x=35;x<IW-35;x+=7){if(!within(x+OX,y+OY))continue;count++;for(let k=0;k<7;k++)strengths[k]+=channels[(y*IW+x)*7+k]};if(mode==='light'){const all=[strengths[0],strengths[1],strengths[2]];const enough=all.every(x=>x>6);document.getElementById('feedback').textContent=enough?'✨ しろく かがやいた！':'ひかりが ひろがったよ！';document.getElementById('shine').textContent=enough?'💎 まほうの ダイヤモンド！':'';if(enough)say('ダイヤモンド！');}else{document.getElementById('feedback').textContent='いろが じわ〜っと しみこんだよ！';}}
 document.getElementById('paint').onclick=()=>switchMode('paint');document.getElementById('light').onclick=()=>switchMode('light');document.getElementById('clear').onclick=()=>reset(true);document.getElementById('undo').onclick=()=>{if(history.length){channels.set(history.pop());dirty=true;render();document.getElementById('feedback').textContent='ひとつ もどしたよ'}};
 document.getElementById('save').onclick=()=>{const a=document.createElement('a');a.href=canvas.toDataURL('image/png');a.download=mode==='paint'?'kakigori.png':'magic-gem.png';a.click();};
 palette();render();
