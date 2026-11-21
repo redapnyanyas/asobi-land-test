@@ -534,3 +534,22 @@ main>#game:not(.hidden){
 #game.slide-five .slide-unused{pointer-events:none;visibility:hidden;}
 #game.slide-five .slide-info{margin-top:12px!important}
 #game.slide-game #hint{touch-action:manipulation}
+
+/* Extra sliding space to the RIGHT of every complete NxN picture. */
+#game.slide-game .board,#game.slide-game.slide-five .board{
+ width:var(--puzzle-board-size)!important;
+ height:calc(var(--puzzle-board-size) * var(--slide-rows) / (var(--slide-rows) + 1))!important;
+ aspect-ratio:auto!important;
+ border:0!important;
+ background:transparent!important;
+ overflow:visible!important;
+}
+#game.slide-game #cells,#game.slide-game.slide-five #cells{
+ position:absolute!important;inset:0!important;display:grid!important;
+ grid-template-columns:repeat(var(--slide-cols),minmax(0,1fr))!important;
+ grid-template-rows:repeat(var(--slide-rows),minmax(0,1fr))!important;
+ width:100%!important;height:100%!important;gap:0!important;
+}
+#game.slide-game .slide-cell,#game.slide-game.slide-five .slide-cell{
+ background-size:calc(var(--grid-size) * 100%) calc(var(--grid-size) * 100%)!important;
+}
