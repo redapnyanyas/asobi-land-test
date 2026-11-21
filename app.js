@@ -35,7 +35,7 @@ function fitPuzzleLayout(){
  let cols,rows,boardPx,waitingPx;
  if(puzzleMode==='slide'){
   rows=0;cols=0;
-  boardPx=slideFive()?Math.floor(Math.min(width,(height-60)*1.5,820)):Math.floor(Math.min(width,height-40,820));
+  boardPx=Math.floor(Math.min(width,(height-38)*(gridSize+1)/gridSize,820));
   waitingPx=0;
  }else if(sideBySide){
   rows=gridSize;cols=gridSize;
@@ -69,12 +69,15 @@ window.addEventListener('resize',()=>requestAnimationFrame(fitPuzzleLayout));
 // to the upper right (two rows, three columns with lower-right absent).
 function slideFive(){return puzzleMode==='slide'&&gridSize===2;}
 function slideGoal(){
- if(slideFive())return [0,1,-1,2,3];
- return Array.from({length:gridSize*gridSize},(_,i)=>i===gridSize*gridSize-1?-1:i);
+ // Every difficulty has a complete square picture plus ONE extra blank
+ // at the upper-right, without creating extra sliding cells below it.
+ return [...Array.from({length:gridSize},(_,i)=>i),-1,
+  ...Array.from({length:gridSize*(gridSize-1)},(_,i)=>i+gridSize)];
 }
 function slideCoords(index){
- if(slideFive())return {col:index<3?index:index-3,row:index<3?0:1};
- return {col:index%gridSize,row:Math.floor(index/gridSize)};
+ const firstRow=gridSize+1;
+ return index<firstRow?{col:index,row:0}:
+  {col:(index-firstRow)%gridSize,row:1+Math.floor((index-firstRow)/gridSize)};
 }
 function slideNeighbours(index){
  const c=slideCoords(index),results=[];
@@ -223,13 +226,16 @@ function slideMove(index,fromHint=false){
 function renderBoard(){const root=$('cells');root.replaceChildren();if(puzzleMode==='slide'){renderSlideBoard();return;}root.style.gridTemplateColumns=`repeat(${gridSize},1fr)`;root.style.gridTemplateRows=`repeat(${gridSize},1fr)`;$('board').style.setProperty('--grid-size',gridSize);for(let i=0;i<gridSize*gridSize;i++){const el=document.createElement('div');el.className='cell';el.dataset.index=i;if(placed.has(i)){el.style.backgroundImage=`url(${current.data})`;el.style.backgroundPosition=position(i)}root.append(el)}}
 function renderSlideBoard(){
  const root=$('cells'),five=slideFive();
- root.style.gridTemplateColumns=`repeat(${five?3:gridSize},1fr)`;
+ root.style.gridTemplateColumns=`repeat(${gridSize+1},1fr)`;
  root.style.gridTemplateRows=`repeat(${gridSize},1fr)`;
  $('board').style.setProperty('--grid-size',gridSize);
+ $('board').style.setProperty('--slide-cols',gridSize+1);
+ $('board').style.setProperty('--slide-rows',gridSize);
  slideTiles.forEach((tile,i)=>{
   const btn=document.createElement('button');btn.type='button';
   btn.className='cell slide-cell'+(tile<0?' slide-blank':'');
   btn.dataset.index=i;btn.dataset.tile=tile;
+  const cellPos=slideCoords(i);btn.style.gridColumn=cellPos.col+1;btn.style.gridRow=cellPos.row+1;
   if(tile>=0){
    btn.style.backgroundImage=`url(${current.data})`;
    btn.style.backgroundPosition=position(tile);
@@ -244,7 +250,7 @@ function renderSlideBoard(){
   }else{btn.disabled=true;btn.setAttribute('aria-label','あいている マス');}
   root.append(btn);
  });
- if(five){const spacer=document.createElement('div');spacer.className='slide-unused';spacer.setAttribute('aria-hidden','true');root.append(spacer);}
+ // Unused cells in the extra column are NOT part of the sliding board.
 }
 function renderTray(){const root=$('tray');if(puzzleMode==='slide'){root.replaceChildren();return;}root.replaceChildren();root.style.setProperty('--grid-size',gridSize);const layout=puzzleTrayShape();root.style.setProperty('--tray-cols',layout.cols);root.style.setProperty('--tray-rows',layout.rows);order.forEach(i=>{const slot=document.createElement('div');slot.className='slot';if(!placed.has(i)){const piece=document.createElement('div');piece.className='piece';piece.dataset.index=i;piece.style.backgroundImage=`url(${current.data})`;piece.style.backgroundPosition=position(i);piece.addEventListener('pointerdown',startDrag);slot.append(piece)}root.append(slot)})}
 function startDrag(e){if(e.button!==0||drag)return;e.preventDefault();const piece=e.currentTarget;const rect=piece.getBoundingClientRect();const clone=$('dragPiece');const cell=$('cells').querySelector('.cell');const size=cell?cell.getBoundingClientRect().width:Math.max(rect.width,rect.height);clone.classList.remove('hidden');clone.style.width=size+'px';clone.style.height=size+'px';clone.style.backgroundImage=piece.style.backgroundImage;clone.style.backgroundPosition=piece.style.backgroundPosition;clone.style.backgroundSize=`${gridSize*100}% ${gridSize*100}%`;drag={id:Number(piece.dataset.index),pointer:e.pointerId,source:piece,size,dx:size/2,dy:size/2};piece.style.opacity='.2';puzzleClick('grab');moveDrag(e);piece.setPointerCapture(e.pointerId)}
