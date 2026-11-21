@@ -123,11 +123,12 @@ function bucket(x,y){
   // This removes the white fringe without erasing the child's divider stroke.
   // Recompose from the ink that existed BEFORE the first bucket fill.
   // This keeps antialiasing but replaces the old bucket color completely.
-  if(alpha>0){
+  if(unpainted&&alpha>0){
    p[k]=Math.round(p[k]*alpha+rgb[0]*(1-alpha));
    p[k+1]=Math.round(p[k+1]*alpha+rgb[1]*(1-alpha));
    p[k+2]=Math.round(p[k+2]*alpha+rgb[2]*(1-alpha));
   }else{
+   // Painting on an existing pen stroke replaces its color, not blends it.
    p[k]=rgb[0];p[k+1]=rgb[1];p[k+2]=rgb[2];
   }
   p[k+3]=255;
