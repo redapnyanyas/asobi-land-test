@@ -23,6 +23,9 @@ $('colorFile').onchange=async e=>{const files=Array.from(e.target.files);e.targe
 /* Coloring: separate outline and paint layers, fill with a small gap closing mask. */
 const paint=$('paintCanvas'),pctx=paint.getContext('2d'),paintLayer=document.createElement('canvas'),px=paintLayer.getContext('2d',{willReadFrequently:true});paintLayer.width=paintLayer.height=600;
 let outline=new Image(),outlineLayer=null,outlineData=null,paintTool='pen',paintColor='#e93432',brush=24,paintHistory=[],paintFuture=[],painting=false,lastPaint=null,paintPointer=null;
+// Track exact bucket-painted pixels and underlying pen pixels for clean recoloring.
+let bucketOwner=new Uint32Array(600*600),bucketBase=new Uint8ClampedArray(600*600*4),bucketSerial=0;
+function resetBucketRegions(){bucketOwner.fill(0);bucketSerial=0;}
 const coupy=[['しろ','#ffffff'],['きいろ','#ffe23c'],['だいだいいろ','#f28a29'],['あか','#e93432'],['ももいろ','#f6a1bb'],['うすだいだい','#f4c59d'],['ちゃいろ','#8e523a'],['こげちゃいろ','#573d34'],['きみどり','#9bc947'],['みどり','#269b50'],['ふかみどり','#156c45'],['みずいろ','#7dd4e7'],['あお','#2876cb'],['ぐんじょういろ','#334aa5'],['むらさき','#8a59ad'],['あかむらさき','#b75493'],['はいいろ','#a0a0a0'],['くろ','#202020'],['おうどいろ','#c6a050'],['やまぶきいろ','#f5ba2f'],['しゅいろ','#ed5837'],['うすむらさき','#c6a2d8'],['あいいろ','#334e80'],['ねずみいろ','#777b7c']];
 const coupyEnglish=["White", "Yellow", "Orange", "Red", "Pink", "Peach", "Brown", "Dark Brown", "Yellow Green", "Green", "Dark Green", "Light Blue", "Blue", "Ultramarine", "Purple", "Red Violet", "Gray", "Black", "Ochre", "Golden Yellow", "Vermilion", "Lavender", "Indigo", "Slate Gray"];
 let speakEnabled=true;let speechQueueToken=0;
@@ -35,7 +38,7 @@ $('paintNameSwitch').onclick=()=>{englishNameMode=!englishNameMode;paintNameRefr
 function palette(){const root=$('palette');root.replaceChildren();coupy.forEach(([name,hex],i)=>{const b=document.createElement('button');b.className='swatch'+(hex===paintColor?' chosen':'');b.style.background=hex;b.title=name;b.setAttribute('aria-label',name);const select=()=>{paintColor=hex;palette();if(englishNameMode)sayEnglish(coupyEnglish[i]);else say(name)};b.onpointerdown=e=>{if(e.pointerType==='touch'||e.pointerType==='pen'){e.preventDefault();select()}};b.onclick=e=>{if(e.detail!==0&&window.PointerEvent&&e.pointerType)return;select()};root.append(b)});const selected=coupy.findIndex(c=>c[1]===paintColor);paintNameRefresh()}palette();
 function paintRender(){pctx.fillStyle='white';pctx.fillRect(0,0,600,600);pctx.drawImage(paintLayer,0,0);if(outlineLayer)pctx.drawImage(outlineLayer,0,0,600,600)}
 function snapshot(){paintHistory.push(px.getImageData(0,0,600,600));if(paintHistory.length>16)paintHistory.shift();paintFuture=[]}
-function beginPaint(src){outlineLayer=null;outline=new Image();outline.onload=()=>{const c=document.createElement('canvas');c.width=c.height=600;const x=c.getContext('2d');x.drawImage(outline,0,0,600,600);const mask=x.getImageData(0,0,600,600);outlineData=new Uint8ClampedArray(mask.data);for(let k=0;k<mask.data.length;k+=4){const v=(mask.data[k]+mask.data[k+1]+mask.data[k+2])/3;mask.data[k]=mask.data[k+1]=mask.data[k+2]=0;mask.data[k+3]=Math.max(0,Math.min(255,(245-v)*2.8))}x.putImageData(mask,0,0);outlineLayer=c;px.clearRect(0,0,600,600);paintHistory=[];paintFuture=[];paintRender();show('coloring')};outline.src=src}
+function beginPaint(src){outlineLayer=null;outline=new Image();outline.onload=()=>{const c=document.createElement('canvas');c.width=c.height=600;const x=c.getContext('2d');x.drawImage(outline,0,0,600,600);const mask=x.getImageData(0,0,600,600);outlineData=new Uint8ClampedArray(mask.data);for(let k=0;k<mask.data.length;k+=4){const v=(mask.data[k]+mask.data[k+1]+mask.data[k+2])/3;mask.data[k]=mask.data[k+1]=mask.data[k+2]=0;mask.data[k+3]=Math.max(0,Math.min(255,(245-v)*2.8))}x.putImageData(mask,0,0);outlineLayer=c;px.clearRect(0,0,600,600);paintHistory=[];paintFuture=[];resetBucketRegions();paintRender();show('coloring')};outline.src=src}
 function pointOnCanvas(e,c){const r=c.getBoundingClientRect();return{x:Math.max(0,Math.min(599,(e.clientX-r.left)*600/r.width)),y:Math.max(0,Math.min(599,(e.clientY-r.top)*600/r.height))}}
 function hexRgb(hex){return [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16))}
 // Incremental canvas strokes avoid re-rendering the entire history for every Pencil sample.
@@ -51,6 +54,18 @@ function bucket(x,y){
  if(!outlineData)return;
  const w=600,h=600,N=w*h,sx=Math.max(0,Math.min(599,Math.floor(x))),sy=Math.max(0,Math.min(599,Math.floor(y))),start=sy*w+sx;
  const source=px.getImageData(0,0,w,h),p=source.data,blocked=new Uint8Array(N);
+ const regionId=bucketOwner[start];
+ if(regionId){
+  const rgb=hexRgb(paintColor);
+  for(let i=0;i<N;i++)if(bucketOwner[i]===regionId){
+   const k=i*4,alpha=bucketBase[k+3]/255;
+   p[k]=Math.round(bucketBase[k]*alpha+rgb[0]*(1-alpha));
+   p[k+1]=Math.round(bucketBase[k+1]*alpha+rgb[1]*(1-alpha));
+   p[k+2]=Math.round(bucketBase[k+2]*alpha+rgb[2]*(1-alpha));
+   p[k+3]=255;
+  }
+  px.putImageData(source,0,0);paintRender();return;
+ }
  // Original artwork lines remain permanent barriers.
  for(let i=0;i<N;i++){
   const k=i*4;
@@ -98,11 +113,17 @@ function bucket(x,y){
    }
   }
  }
+ const newRegion=++bucketSerial;
  for(const i of ids){
   const k=i*4,alpha=p[k+3]/255;
+  if(bucketOwner[i])continue;
+  bucketOwner[i]=newRegion;
+  bucketBase[k]=p[k];bucketBase[k+1]=p[k+1];bucketBase[k+2]=p[k+2];bucketBase[k+3]=p[k+3];
   // For a fresh fill, lay color underneath translucent pen anti-aliasing.
   // This removes the white fringe without erasing the child's divider stroke.
-  if(unpainted&&alpha>0){
+  // Recompose from the ink that existed BEFORE the first bucket fill.
+  // This keeps antialiasing but replaces the old bucket color completely.
+  if(alpha>0){
    p[k]=Math.round(p[k]*alpha+rgb[0]*(1-alpha));
    p[k+1]=Math.round(p[k+1]*alpha+rgb[1]*(1-alpha));
    p[k+2]=Math.round(p[k+2]*alpha+rgb[2]*(1-alpha));
@@ -113,14 +134,14 @@ function bucket(x,y){
  }
  px.putImageData(source,0,0);paintRender();
 }
-paint.addEventListener('pointerdown',e=>{if(painting)return;e.preventDefault();paint.setPointerCapture(e.pointerId);painting=true;paintPointer=e.pointerId;const p=pointOnCanvas(e,paint);snapshot();if(paintTool==='pen'||paintTool==='eraser'){drawPaintSegment(p,{x:p.x+.12,y:p.y+.12},e.pressure,e.pointerType==='pen');paintRender()}if(paintTool==='bucket'){bucket(p.x,p.y);painting=false;paintPointer=null;return}lastPaint=p;drawPaintSegment(p,p,e.pressure,e.pointerType==='pen');paintRender()});
+paint.addEventListener('pointerdown',e=>{if(painting)return;e.preventDefault();paint.setPointerCapture(e.pointerId);painting=true;paintPointer=e.pointerId;const p=pointOnCanvas(e,paint);snapshot();if(paintTool==='pen'||paintTool==='eraser'){resetBucketRegions();drawPaintSegment(p,{x:p.x+.12,y:p.y+.12},e.pressure,e.pointerType==='pen');paintRender()}if(paintTool==='bucket'){bucket(p.x,p.y);painting=false;paintPointer=null;return}lastPaint=p;drawPaintSegment(p,p,e.pressure,e.pointerType==='pen');paintRender()});
 paint.addEventListener('pointermove',e=>{if(!painting||e.pointerId!==paintPointer||!lastPaint)return;e.preventDefault();const events=typeof e.getCoalescedEvents==='function'?e.getCoalescedEvents():[e];for(const ev of events){const p=pointOnCanvas(ev,paint);if(Math.hypot(p.x-lastPaint.x,p.y-lastPaint.y)<.2)continue;drawPaintSegment(lastPaint,p,ev.pressure,ev.pointerType==='pen');lastPaint=p}paintRender()});
 ['pointerup','pointercancel','lostpointercapture'].forEach(t=>paint.addEventListener(t,e=>{if(e.pointerId===paintPointer){painting=false;lastPaint=null;paintPointer=null;paintRender()}}));
 document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{paintTool=b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('chosen',x===b))});
 document.querySelectorAll('[data-brush]').forEach(b=>b.onclick=()=>{brush=Number(b.dataset.brush);document.querySelectorAll('[data-brush]').forEach(x=>x.classList.toggle('chosen',x===b))});
-$('paintUndo').onclick=()=>{if(!paintHistory.length)return;paintFuture.push(px.getImageData(0,0,600,600));px.putImageData(paintHistory.pop(),0,0);paintRender()};
-$('paintRedo').onclick=()=>{if(!paintFuture.length)return;paintHistory.push(px.getImageData(0,0,600,600));px.putImageData(paintFuture.pop(),0,0);paintRender()};
-$('paintClear').onclick=()=>{if(confirm('ぬった いろを ぜんぶ けす？')){snapshot();px.clearRect(0,0,600,600);paintRender()}};
+$('paintUndo').onclick=()=>{if(!paintHistory.length)return;paintFuture.push(px.getImageData(0,0,600,600));px.putImageData(paintHistory.pop(),0,0);resetBucketRegions();paintRender()};
+$('paintRedo').onclick=()=>{if(!paintFuture.length)return;paintHistory.push(px.getImageData(0,0,600,600));px.putImageData(paintFuture.pop(),0,0);resetBucketRegions();paintRender()};
+$('paintClear').onclick=()=>{if(confirm('ぬった いろを ぜんぶ けす？')){snapshot();px.clearRect(0,0,600,600);resetBucketRegions();paintRender()}};
 // iPad web apps cannot write directly to Photos. Open the native share sheet,
 // where the user can select “画像を保存”. Do not claim a download is in Photos.
 $('paintSave').onclick=async()=>{
